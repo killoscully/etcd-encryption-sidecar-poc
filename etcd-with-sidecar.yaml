@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: etcd
+  labels:
+    app: etcd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: etcd
+  template:
+    metadata:
+      labels:
+        app: etcd
+    spec:
+      containers:
+        - name: etcd
+          image: quay.io/coreos/etcd:v3.5.0
+          command:
+            - /usr/local/bin/etcd
+          args:
+            - "--name"
+            - "etcd-node"
+            - "--data-dir"
+            - "/var/lib/etcd"
+            - "--advertise-client-urls"
+            - "http://0.0.0.0:2379"
+            - "--listen-client-urls"
+            - "http://0.0.0.0:2379"
+          ports:
+            - containerPort: 2379
+
+        - name: encryption-sidecar
+          image: killoscully/etcd-encryption-sidecar:latest
+          ports:
+            - containerPort: 5000
+          env:
+            - name: ENCRYPTION_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: encryption-config
+                  key: ENCRYPTION_TYPE
+            # NEW: Inject the key from the Secret
+            - name: ENCRYPTION_KEY_DATA
+              valueFrom:
+                secretKeyRef:
+                  name: sidecar-encryption-key
+                  key: key

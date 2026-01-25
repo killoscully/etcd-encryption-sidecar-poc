@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: etcd-client
+  namespace: etcd-poc
+  labels:
+    app: etcd-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: etcd-client
+  template:
+    metadata:
+      labels:
+        app: etcd-client
+    spec:
+      containers:
+        - name: encryption-sidecar
+          image: killoscully/etcd-encryption-sidecar:latest
+          ports:
+            - containerPort: 5000
+          env:
+            - name: ETCD_HOST
+              value: "etcd"
+            - name: ETCD_PORT
+              value: "2379"

@@ -1,0 +1,15 @@
+cat <<EOF > .gitignore
+# OS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+
+# Secrets
+*.env
+EOF
