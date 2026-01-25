@@ -25,3 +25,7 @@ spec:
               value: "etcd"
             - name: ETCD_PORT
               value: "2379"
+            - name: FLASK_HOST
+              value: "0.0.0.0"
+            - name: FLASK_PORT
+              value: "5000"

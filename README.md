@@ -1,51 +1,65 @@
 # Runbook: etcd Encryption Sidecar PoC (Kubernetes)
 
-This runbook explains how to deploy, validate, and operate the **etcd + encryption sidecar** proof-of-concept in Kubernetes.
+This runbook describes how to deploy, validate, operate, and clean up the **etcd + encryption sidecar** proof-of-concept in Kubernetes using declarative YAML files. It reflects the **final, consistent configuration** where the sidecar listens on **port 5000 everywhere** (application, container, Service, and port-forwarding).
 
-## Overview
+---
+
+## Architecture Overview
 
 **Components**
-- **etcd**: key/value store (gRPC on port **2379**)
-- **encryption-sidecar service** (called `etcd-client` deployment): Flask API that encrypts/decrypts values and stores/retrieves them from etcd (HTTP on port **5000**)
 
-**In-cluster DNS names**
-- etcd: `etcd.etcd-poc.svc.cluster.local` (short name `etcd`)
-- sidecar API: `encryption-sidecar.etcd-poc.svc.cluster.local` (short name `encryption-sidecar`)
+* **etcd** (Deployment + Service)
+
+  * gRPC client endpoint on port **2379**
+* **Encryption Sidecar Service** (Deployment + Service, named `etcd-client`)
+
+  * HTTP API on port **5000**
+  * Encrypts/decrypts values before storing/retrieving them from etcd
+
+**In-cluster DNS**
+
+* etcd: `etcd.etcd-poc.svc.cluster.local` (short name: `etcd`)
+* sidecar API: `encryption-sidecar.etcd-poc.svc.cluster.local`
 
 **Namespace**
-- `etcd-poc`
+
+* `etcd-poc`
 
 ---
 
 ## Prerequisites
 
-- `kubectl` configured for the target cluster
-- Namespace `etcd-poc` (this runbook creates it if missing)
-- Files available locally:
-  - `etcd-deployment.yaml` (etcd Deployment)
-  - `etcd-client-deployment.yaml` (sidecar Deployment) *(if you do not have this, see the template below)*
-  - Optional: `ConfigMap`/`Secret` YAML for encryption settings/keys (if used)
+* `kubectl` configured for the target cluster
+* Docker image available (public):
+
+  * `killoscully/etcd-encryption-sidecar:latest`
+* Local manifest files:
+
+  * `etcd-deployment.yaml`
+  * `etcd-service.yaml`
+  * `etcd-client-deployment.yaml`
+  * `encryption-sidecar-service.yaml`
 
 ---
 
-## Quick Start (clean deploy)
+## 1. Namespace Setup
 
-### 1) Create (or recreate) the namespace
+Create or reset the namespace.
 
-If you want a clean start, recreate the namespace:
+### Clean reset (recommended for PoC)
 
 ```bash
 kubectl delete namespace etcd-poc --ignore-not-found
 kubectl create namespace etcd-poc
 ```
 
-If you **do not** want to delete existing resources, just ensure it exists:
+### Or ensure it exists
 
 ```bash
 kubectl get ns etcd-poc || kubectl create ns etcd-poc
 ```
 
-(Optional) Set your current kubectl context namespace:
+(Optional) Set default namespace:
 
 ```bash
 kubectl config set-context --current --namespace=etcd-poc
@@ -53,314 +67,209 @@ kubectl config set-context --current --namespace=etcd-poc
 
 ---
 
-### 2) Deploy etcd
+## 2. Deploy etcd
 
-Apply your etcd deployment:
+### Apply Deployment
 
 ```bash
-kubectl apply -n etcd-poc -f etcd-deployment.yaml
+kubectl apply -f etcd-deployment.yaml
 ```
 
-Wait for it to be Running:
+### Apply Service
 
 ```bash
-kubectl rollout status -n etcd-poc deploy/etcd
-kubectl get pods -n etcd-poc
+kubectl apply -f etcd-service.yaml
 ```
 
-Expected:
-- `etcd-xxxxx` is `Running` and `READY 1/1`
-
----
-
-### 3) Create the etcd Service (required)
-
-Create a ClusterIP service named `etcd` (required for DNS resolution from the sidecar):
+### Verify
 
 ```bash
-kubectl apply -n etcd-poc -f - <<'EOF'
-apiVersion: v1
-kind: Service
-metadata:
-  name: etcd
-spec:
-  selector:
-    app: etcd
-  ports:
-    - name: client
-      port: 2379
-      targetPort: 2379
-EOF
-```
-
-Verify:
-
-```bash
-kubectl get svc -n etcd-poc
+kubectl rollout status deploy/etcd
+kubectl get pods
+kubectl get svc
 ```
 
 Expected:
-- `etcd` on `2379/TCP`
+
+* `etcd-xxxxx` → `Running`
+* `etcd` Service → `2379/TCP`
 
 ---
 
-### 4) Deploy the encryption sidecar service (`etcd-client`)
+## 3. Deploy Encryption Sidecar (etcd-client)
 
-Apply your sidecar deployment:
+### Apply Deployment
 
 ```bash
-kubectl apply -n etcd-poc -f etcd-client-deployment.yaml
+kubectl apply -f etcd-client-deployment.yaml
 ```
 
-Wait for it:
+### Apply Service
 
 ```bash
-kubectl rollout status -n etcd-poc deploy/etcd-client
-kubectl get pods -n etcd-poc --show-labels
+kubectl apply -f encryption-sidecar-service.yaml
+```
+
+### Verify
+
+```bash
+kubectl rollout status deploy/etcd-client
+kubectl get pods --show-labels
+kubectl get svc
 ```
 
 Expected:
-- `etcd-client-xxxxx` is `Running` and has label `app=etcd-client`
+
+* `etcd-client-xxxxx` → `Running`
+* `encryption-sidecar` Service → `5000/TCP`
 
 ---
 
-### 5) Create the sidecar Service (HTTP API)
+## 4. DNS and Connectivity Validation
+
+### Verify etcd DNS from sidecar
 
 ```bash
-kubectl apply -n etcd-poc -f - <<'EOF'
-apiVersion: v1
-kind: Service
-metadata:
-  name: encryption-sidecar
-spec:
-  selector:
-    app: etcd-client
-  ports:
-    - name: http
-      port: 5000
-      targetPort: 5000
-EOF
-```
-
-Verify:
-
-```bash
-kubectl get svc -n etcd-poc
+kubectl exec -it deploy/etcd-client -- sh -c "getent hosts etcd"
 ```
 
 Expected:
-- `encryption-sidecar` on `5000/TCP`
+
+* IP address returned for `etcd.etcd-poc.svc.cluster.local`
 
 ---
 
-## Validation
+## 5. Functional Test (PUT / GET)
 
-### A) Validate DNS resolution from the sidecar pod
-
-Run:
+### Port-forward sidecar API (5000 → 5000)
 
 ```bash
-kubectl exec -n etcd-poc -it deploy/etcd-client -- sh -c "getent hosts etcd"
+kubectl port-forward svc/encryption-sidecar 5000:5000
 ```
 
-Expected output (example):
-- `10.x.x.x  etcd.etcd-poc.svc.cluster.local`
+### PUT
 
-> Note: Some minimal containers do not include `nslookup`. `getent hosts` is sufficient.
-
----
-
-### B) Test the sidecar API from your workstation
-
-Port-forward the sidecar service:
-
-```bash
-kubectl port-forward -n etcd-poc svc/encryption-sidecar 5000:5000
-```
-
-In a **second terminal**, run:
-
-**PUT**
 ```bash
 curl -X POST http://localhost:5000/put \
   -H "Content-Type: application/json" \
   -d '{"key":"poc-test","value":"hello"}'
 ```
 
-**GET**
+### GET
+
 ```bash
 curl "http://localhost:5000/get?key=poc-test"
 ```
 
 Expected:
-- PUT returns success (implementation dependent; often JSON like `{"status":"ok"}`)
-- GET returns the decrypted value for `poc-test`
+
+* Value returned matches input
 
 ---
 
-## Operations
+## 6. Operations
 
 ### View status
 
 ```bash
-kubectl get all -n etcd-poc
+kubectl get all
 ```
 
-### View logs
+### Logs
 
 etcd:
+
 ```bash
-kubectl logs -n etcd-poc deploy/etcd --tail=200
+kubectl logs deploy/etcd --tail=200
 ```
 
 sidecar:
+
 ```bash
-kubectl logs -n etcd-poc deploy/etcd-client --tail=200
+kubectl logs deploy/etcd-client --tail=200
 ```
 
-Follow logs:
-```bash
-kubectl logs -n etcd-poc -f deploy/etcd-client --tail=200
-```
-
-### Restart deployments
+### Restart
 
 ```bash
-kubectl rollout restart -n etcd-poc deploy/etcd
-kubectl rollout restart -n etcd-poc deploy/etcd-client
+kubectl rollout restart deploy/etcd
+kubectl rollout restart deploy/etcd-client
 ```
 
 ---
 
-## Troubleshooting
+## 7. Troubleshooting
 
-### 1) Sidecar errors: `DNS resolution failed for etcd:2379`
+### Issue: Sidecar starts but requests fail
 
-**Cause**
-- The `etcd` Service is missing, wrong name, wrong namespace, or its selector does not match etcd pod labels.
+**Check**
+
+```bash
+kubectl logs deploy/etcd-client --tail=50
+```
+
+Ensure log line shows:
+
+```
+Starting sidecar on 0.0.0.0:5000
+```
+
+If it shows another port, the image was not rebuilt or pulled.
+
+---
+
+### Issue: DNS resolution failed for `etcd`
 
 **Fix**
-- Ensure the Service exists:
-  ```bash
-  kubectl get svc -n etcd-poc
-  ```
-- Ensure it selects the etcd pod:
-  ```bash
-  kubectl get pods -n etcd-poc --show-labels
-  kubectl describe svc -n etcd-poc etcd
-  ```
-- The etcd pod must have `app=etcd` and the Service selector must match `app: etcd`.
 
----
-
-### 2) Port-forward fails: service not found
-
-**Cause**
-- `encryption-sidecar` Service not created or wrong namespace.
-
-**Fix**
 ```bash
-kubectl get svc -n etcd-poc
-kubectl apply -n etcd-poc -f - <<'EOF'
-apiVersion: v1
-kind: Service
-metadata:
-  name: encryption-sidecar
-spec:
-  selector:
-    app: etcd-client
-  ports:
-    - port: 5000
-      targetPort: 5000
-EOF
+kubectl describe svc etcd
+kubectl get pods --show-labels
 ```
 
----
+Ensure:
 
-### 3) Sidecar pod has no labels (`<none>`) and Service cannot route traffic
-
-**Cause**
-- The pod was created as a standalone Pod without labels.
-
-**Fix**
-- Prefer deploying as a Deployment with labels (`app=etcd-client`).
-- Delete and recreate the pod using a Deployment manifest.
+* Pod label: `app=etcd`
+* Service selector: `app: etcd`
 
 ---
 
-### 4) etcd is Running but sidecar shows connection refused / unavailable
-
-**Checks**
-- Confirm etcd Service endpoints:
-  ```bash
-  kubectl get endpoints -n etcd-poc etcd -o yaml
-  ```
-- Confirm etcd listens on 2379:
-  ```bash
-  kubectl logs -n etcd-poc deploy/etcd --tail=200
-  ```
-- Confirm the sidecar resolves `etcd`:
-  ```bash
-  kubectl exec -n etcd-poc -it deploy/etcd-client -- sh -c "getent hosts etcd"
-  ```
-
----
-
-## Reference: Template `etcd-client-deployment.yaml`
-
-Use this if you need a known-good sidecar deployment. Adjust env vars to match your sidecar implementation.
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: etcd-client
-  namespace: etcd-poc
-  labels:
-    app: etcd-client
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: etcd-client
-  template:
-    metadata:
-      labels:
-        app: etcd-client
-    spec:
-      containers:
-        - name: encryption-sidecar
-          image: ramonrodriguez495/etcd-encryption-sidecar:latest
-          ports:
-            - containerPort: 5000
-          env:
-            - name: ETCD_HOST
-              value: "etcd"
-            - name: ETCD_PORT
-              value: "2379"
-            # Optional if you use them:
-            # - name: ENCRYPTION_TYPE
-            #   value: "aesgcm"
-            # - name: ENCRYPTION_KEY_DATA
-            #   valueFrom:
-            #     secretKeyRef:
-            #       name: sidecar-encryption-key
-            #       key: key
-```
-
----
-
-## Rollback / Cleanup
-
-To remove everything:
+## 8. Cleanup
 
 ```bash
 kubectl delete namespace etcd-poc
 ```
 
-If you want to keep the namespace but remove resources:
+---
+
+## Automated Deployment (Recommended)
+
+For repeatable runs, use the deployment script.
+
+### Script
+
+* `deploy_poc.sh`
+
+### Run
 
 ```bash
-kubectl delete deploy etcd etcd-client -n etcd-poc --ignore-not-found
-kubectl delete svc etcd encryption-sidecar -n etcd-poc --ignore-not-found
+chmod +x deploy_poc.sh
+./deploy_poc.sh
 ```
+
+### When to use
+
+* Benchmarks
+* Demos
+* CI or repeated experiments
+
+---
+
+## Notes for Benchmarking (Next Phase)
+
+* Add `ENCRYPTION_TYPE=none` for baseline
+* Instrument encryption/decryption latency
+* Run controlled load tests
+* Capture CPU/memory per pod
+
+This runbook defines a **stable, repeatable baseline** suitable for performance and security research.

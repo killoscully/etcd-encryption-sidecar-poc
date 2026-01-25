@@ -18,7 +18,7 @@ ETCD_PORT = int(os.environ.get("ETCD_PORT", "2379"))
 ETCD_RETRIES = int(os.environ.get("ETCD_RETRIES", "12"))
 ETCD_RETRY_DELAY = float(os.environ.get("ETCD_RETRY_DELAY", "2.0"))
 FLASK_HOST = os.environ.get("FLASK_HOST", "0.0.0.0")
-FLASK_PORT = int(os.environ.get("FLASK_PORT", "8080"))
+FLASK_PORT = int(os.environ.get("FLASK_PORT", "5000"))
 
 # Global client holder
 _etcd_client = None
