@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: etcd-client
+  namespace: etcd-poc
+  labels:
+    app: etcd-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: etcd-client
+  template:
+    metadata:
+      labels:
+        app: etcd-client
+    spec:
+      containers:
+        # Workload generator / "application" container.
+        # It calls the sidecar over localhost (same pod network namespace).
+        - name: app
+          image: curlimages/curl:8.10.1
+          command: [ "sh","-c" ]
+          args:
+            - |
+              echo "app container started; use kubectl exec to run requests";
+              sleep 365d
+        # Encryption sidecar: encrypts/decrypts values and talks to etcd.
+        - name: encryption-sidecar
+          image: killoscully/etcd-encryption-sidecar:latest
+          ports:
+            - containerPort: 5000
+          env:
+            - name: ETCD_HOST
+              value: etcd
+            - name: ETCD_PORT
+              value: "2379"
+            # Optional: pick encryption algorithm via ConfigMap.
+            - name: ENCRYPTION_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: encryption-config
+                  key: ENCRYPTION_TYPE
+                  optional: true

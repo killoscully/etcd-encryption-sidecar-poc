@@ -14,14 +14,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 
-COPY etcd-encryption-sidecar.py encryption-plugin-system.py /app/
+COPY etcd_encryption_sidecar.py encryption_plugin_system.py /app/
 
 RUN pip install --upgrade pip setuptools wheel \
  && pip install --no-cache-dir \
     etcd3 \
     flask==2.3.2 \
-    pycryptodome==3.23.0 \
+    cryptography==42.0.8 \
+    PyJWT==2.8.0 \
+    jwcrypto==1.5.6 \
     "protobuf==3.20.*"
+
 
 EXPOSE 5000
 
