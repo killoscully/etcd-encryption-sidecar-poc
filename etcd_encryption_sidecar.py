@@ -1,4 +1,3 @@
-# /app/etcd_encryption_sidecar.py
 import os
 import time
 import logging
@@ -18,7 +17,6 @@ from encryption_plugin_system import (
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("etcd_sidecar")
 
-# Configuration
 ETCD_HOST = os.environ.get("ETCD_HOST", "127.0.0.1")
 ETCD_PORT = int(os.environ.get("ETCD_PORT", "2379"))
 ETCD_RETRIES = int(os.environ.get("ETCD_RETRIES", "12"))
@@ -27,11 +25,8 @@ FLASK_HOST = os.environ.get("FLASK_HOST", "0.0.0.0")
 FLASK_PORT = int(os.environ.get("FLASK_PORT", "5000"))
 
 ENCRYPTION_TYPE = os.environ.get("ENCRYPTION_TYPE", "AES_GCM").strip().upper()
-
-# Global client holder
 _etcd_client = None
 
-# Crypto manager + key material
 plugin_manager = default_manager()
 key_material = load_key_material_from_env("ENCRYPTION_KEY_DATA")
 
@@ -94,8 +89,7 @@ def decode_value(value):
 def get_value(key_name):
     def _get(client, key):
         return client.get(key)
-    raw_value, meta = safe_etcd_call(_get, key_name)
-    return raw_value, meta
+    return safe_etcd_call(_get, key_name)
 
 
 def put_value(key_name, value):
@@ -109,13 +103,7 @@ app = Flask(__name__)
 
 @app.route("/healthz", methods=["GET"])
 def healthz():
-    return jsonify(
-        {
-            "ok": True,
-            "encryption_type": ENCRYPTION_TYPE,
-            "etcd": f"{ETCD_HOST}:{ETCD_PORT}",
-        }
-    )
+    return jsonify({"ok": True, "encryption_type": ENCRYPTION_TYPE, "etcd": f"{ETCD_HOST}:{ETCD_PORT}"}), 200
 
 
 @app.errorhandler(500)
@@ -136,7 +124,6 @@ def put_handler():
         if not key or value is None:
             return jsonify({"error": "missing key or value"}), 400
 
-        # Encrypt payload using configured plugin
         plugin = plugin_manager.get(ENCRYPTION_TYPE)
         ciphertext = plugin.encrypt(str(value), key_material)
 
@@ -155,13 +142,11 @@ def get_handler():
         if not key:
             return jsonify({"error": "missing key parameter"}), 400
 
-        raw_value, meta = get_value(key)
+        raw_value, _meta = get_value(key)
         if raw_value is None:
             return jsonify({"found": False, "value": None}), 200
 
         stored = decode_value(raw_value)
-
-        # Try decrypt if value is an envelope; otherwise return as-is (backward compatible)
         plaintext = try_decrypt_any(str(stored), key_material, plugin_manager)
         return jsonify({"found": True, "value": plaintext}), 200
 
@@ -190,7 +175,6 @@ def all_handler():
             try:
                 v = try_decrypt_any(str(stored), key_material, plugin_manager)
             except Exception:
-                # If decrypt fails (wrong key / tampered), show stored value rather than crashing.
                 v = str(stored)
 
             items.append({"key": k, "value": v})
@@ -224,10 +208,6 @@ def all_handler():
 if __name__ == "__main__":
     logger.info(
         "Starting sidecar on %s:%d, etcd %s:%d, ENCRYPTION_TYPE=%s",
-        FLASK_HOST,
-        FLASK_PORT,
-        ETCD_HOST,
-        ETCD_PORT,
-        ENCRYPTION_TYPE,
+        FLASK_HOST, FLASK_PORT, ETCD_HOST, ETCD_PORT, ENCRYPTION_TYPE
     )
     app.run(host=FLASK_HOST, port=FLASK_PORT, debug=False)

@@ -1,20 +1,11 @@
 FROM python:3.11-slim
 
-ENV PYTHONUNBUFFERED=1 DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    curl \
-    build-essential \
-    libffi-dev \
-    libssl-dev \
-    gcc \
-    python3-dev \
- && update-ca-certificates \
- && rm -rf /var/lib/apt/lists/*
-
-
-COPY etcd_encryption_sidecar.py encryption_plugin_system.py /app/
+    netbase \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --upgrade pip setuptools wheel \
  && pip install --no-cache-dir \
@@ -25,7 +16,9 @@ RUN pip install --upgrade pip setuptools wheel \
     jwcrypto==1.5.6 \
     "protobuf==3.20.*"
 
+COPY encryption_plugin_system.py /app/encryption_plugin_system.py
+COPY etcd_encryption_sidecar.py /app/etcd_encryption_sidecar.py
 
 EXPOSE 5000
 
-CMD ["python", "/app/etcd-encryption-sidecar.py"]
+CMD ["python", "/app/etcd_encryption_sidecar.py"]

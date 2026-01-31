@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: etcd-client-chacha
+  namespace: etcd-poc
+  labels:
+    app: etcd-client-chacha
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: etcd-client-chacha
+  template:
+    metadata:
+      labels:
+        app: etcd-client-chacha
+    spec:
+      containers:
+        - name: app
+          image: curlimages/curl:8.10.1
+          command: ["sh","-c"]
+          args:
+            - |
+              echo "app container started for CHACHA20_POLY1305; use kubectl exec to run requests";
+              sleep 365d
+        - name: encryption-sidecar
+          image: killoscully/etcd-encryption-sidecar:latest
+          ports:
+            - containerPort: 5000
+          env:
+            - name: ETCD_HOST
+              value: etcd
+            - name: ETCD_PORT
+              value: "2379"
+            - name: ENCRYPTION_TYPE
+              value: "CHACHA20_POLY1305"
+            - name: ENCRYPTION_KEY_DATA
+              valueFrom:
+                secretKeyRef:
+                  name: sidecar-encryption-key
+                  key: key
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: encryption-sidecar-chacha
+  namespace: etcd-poc
+  labels:
+    app: etcd-client-chacha
+spec:
+  type: ClusterIP
+  selector:
+    app: etcd-client-chacha
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
