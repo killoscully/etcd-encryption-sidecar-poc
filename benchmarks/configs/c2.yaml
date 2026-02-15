@@ -1,0 +1,2 @@
+concurrency: 10
+duration_seconds: 120

@@ -1,0 +1,5 @@
+workload: put_only
+read_ratio: 0
+write_ratio: 100
+preload: false
+keyspace_size: 200000
