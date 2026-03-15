@@ -1,0 +1,35 @@
+experiments:
+  - name: plaintext
+    encryption: PLAINTEXT
+    payload_sizes: [1024, 10240, 102400]
+    iterations: 30
+    concurrency_levels: [1, 10, 64, 128]
+    repetitions: 5
+
+  - name: aes_gcm
+    encryption: AES_GCM
+    payload_sizes: [1024, 10240, 102400]
+    iterations: 30
+    concurrency_levels: [1, 10, 64, 128]
+    repetitions: 5
+
+  - name: aes_cbc
+    encryption: AES_CBC
+    payload_sizes: [1024, 10240, 102400]
+    iterations: 30
+    concurrency_levels: [1, 10, 64, 128]
+    repetitions: 5
+
+  - name: rsa
+    encryption: RSA
+    payload_sizes: [1024, 10240, 102400]
+    iterations: 30
+    concurrency_levels: [1, 10, 64, 128]
+    repetitions: 5
+
+  - name: hybrid_aes_gcm_rsa
+    encryption: HYBRID_AES_GCM_RSA
+    payload_sizes: [1024, 10240, 102400]
+    iterations: 30
+    concurrency_levels: [1, 10, 64, 128]
+    repetitions: 5

@@ -1,18 +1,14 @@
+import html as html_escape
+import logging
 import os
 import time
-import logging
 import traceback
-import html as html_escape
 
-from flask import Flask, request, jsonify, Response
 import etcd3
 from etcd3 import exceptions as etcd_exceptions
+from flask import Flask, Response, jsonify, request
 
-from encryption_plugin_system import (
-    default_manager,
-    load_key_material_from_env,
-    try_decrypt_any,
-)
+from encryption_plugin_system import default_manager, ensure_rsa_key_material, load_key_material_from_env, try_decrypt_any
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("etcd_sidecar")
@@ -23,12 +19,11 @@ ETCD_RETRIES = int(os.environ.get("ETCD_RETRIES", "12"))
 ETCD_RETRY_DELAY = float(os.environ.get("ETCD_RETRY_DELAY", "2.0"))
 FLASK_HOST = os.environ.get("FLASK_HOST", "0.0.0.0")
 FLASK_PORT = int(os.environ.get("FLASK_PORT", "5000"))
-
-ENCRYPTION_TYPE = os.environ.get("ENCRYPTION_TYPE", "AES_GCM").strip().upper()
-_etcd_client = None
+ENCRYPTION_TYPE = os.environ.get("ENCRYPTION_TYPE", "PLAINTEXT").strip().upper()
 
 plugin_manager = default_manager()
-key_material = load_key_material_from_env("ENCRYPTION_KEY_DATA")
+key_material = ensure_rsa_key_material(load_key_material_from_env("ENCRYPTION_KEY_DATA"))
+_etcd_client = None
 
 
 def connect_etcd():
@@ -43,7 +38,6 @@ def connect_etcd():
             last_exc = exc
             logger.warning("etcd connect attempt %d failed: %s", attempt, exc)
             time.sleep(ETCD_RETRY_DELAY)
-    logger.error("Failed to connect to etcd after %d attempts", ETCD_RETRIES)
     raise last_exc
 
 
@@ -79,23 +73,16 @@ def decode_value(value):
     if value is None:
         return None
     if isinstance(value, (bytes, bytearray)):
-        try:
-            return value.decode("utf-8")
-        except Exception:
-            return value.decode("latin-1", errors="replace")
+        return value.decode("utf-8", errors="replace")
     return value
 
 
 def get_value(key_name):
-    def _get(client, key):
-        return client.get(key)
-    return safe_etcd_call(_get, key_name)
+    return safe_etcd_call(lambda client, key: client.get(key), key_name)
 
 
 def put_value(key_name, value):
-    def _put(client, key, val):
-        return client.put(key, val)
-    return safe_etcd_call(_put, key_name, value)
+    return safe_etcd_call(lambda client, key, val: client.put(key, val), key_name, value)
 
 
 app = Flask(__name__)
@@ -103,13 +90,12 @@ app = Flask(__name__)
 
 @app.route("/healthz", methods=["GET"])
 def healthz():
-    return jsonify({"ok": True, "encryption_type": ENCRYPTION_TYPE, "etcd": f"{ETCD_HOST}:{ETCD_PORT}"}), 200
-
-
-@app.errorhandler(500)
-def internal_error(e):
-    logger.exception("Unhandled exception: %s", e)
-    return jsonify({"error": "internal server error"}), 500
+    return jsonify({
+        "ok": True,
+        "encryption_type": ENCRYPTION_TYPE,
+        "supported_algorithms": plugin_manager.names,
+        "etcd": f"{ETCD_HOST}:{ETCD_PORT}",
+    }), 200
 
 
 @app.route("/put", methods=["POST"])
@@ -118,20 +104,21 @@ def put_handler():
         data = request.get_json(force=True)
         if not isinstance(data, dict):
             return jsonify({"error": "invalid JSON body"}), 400
-
         key = data.get("key")
         value = data.get("value")
         if not key or value is None:
             return jsonify({"error": "missing key or value"}), 400
-
         plugin = plugin_manager.get(ENCRYPTION_TYPE)
+        started = time.perf_counter()
         ciphertext = plugin.encrypt(str(value), key_material)
-
+        crypto_ms = (time.perf_counter() - started) * 1000.0
         put_value(key, ciphertext)
-        return jsonify({"result": "ok", "alg": plugin.name}), 200
-
-    except Exception as e:
-        logger.exception("PUT handler error: %s\n%s", e, traceback.format_exc())
+        return jsonify({"result": "ok", "alg": plugin.name, "key": key, "crypto_ms": round(crypto_ms, 3)}), 200
+    except KeyError as exc:
+        logger.error("Unsupported encryption type: %s", exc)
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("PUT handler error: %s\n%s", exc, traceback.format_exc())
         return jsonify({"error": "internal server error"}), 500
 
 
@@ -141,17 +128,16 @@ def get_handler():
         key = request.args.get("key")
         if not key:
             return jsonify({"error": "missing key parameter"}), 400
-
         raw_value, _meta = get_value(key)
         if raw_value is None:
             return jsonify({"found": False, "value": None}), 200
-
         stored = decode_value(raw_value)
+        started = time.perf_counter()
         plaintext = try_decrypt_any(str(stored), key_material, plugin_manager)
-        return jsonify({"found": True, "value": plaintext}), 200
-
-    except Exception as e:
-        logger.exception("GET handler error: %s\n%s", e, traceback.format_exc())
+        crypto_ms = (time.perf_counter() - started) * 1000.0
+        return jsonify({"found": True, "value": plaintext, "key": key, "crypto_ms": round(crypto_ms, 3)}), 200
+    except Exception as exc:
+        logger.exception("GET handler error: %s\n%s", exc, traceback.format_exc())
         return jsonify({"error": "internal server error"}), 500
 
 
@@ -164,35 +150,28 @@ def all_handler():
         items = []
         iterator = client.get_prefix(p) if p else client.get_all()
         for value, meta in iterator:
-            try:
-                k = getattr(meta, "key", None)
-                if isinstance(k, (bytes, bytearray)):
-                    k = k.decode("utf-8", errors="replace")
-            except Exception:
-                k = None
-
+            k = getattr(meta, "key", b"")
+            if isinstance(k, (bytes, bytearray)):
+                k = k.decode("utf-8", errors="replace")
             stored = decode_value(value)
             try:
-                v = try_decrypt_any(str(stored), key_material, plugin_manager)
+                decoded = try_decrypt_any(str(stored), key_material, plugin_manager)
             except Exception:
-                v = str(stored)
-
-            items.append({"key": k, "value": v})
+                decoded = str(stored)
+            items.append({"key": k, "value": decoded})
         return items
 
     try:
         items = safe_etcd_call(_list, pref_bytes)
-    except Exception as e:
-        logger.exception("ALL handler error: %s\n%s", e, traceback.format_exc())
+    except Exception as exc:
+        logger.exception("ALL handler error: %s\n%s", exc, traceback.format_exc())
         return jsonify({"error": "internal server error"}), 500
 
     accept = request.headers.get("Accept", "")
     if "text/html" in accept:
         rows = "".join(
-            "<tr><td>{}</td><td>{}</td></tr>".format(
-                html_escape.escape(i["key"] or ""), html_escape.escape(str(i["value"] or ""))
-            )
-            for i in items
+            "<tr><td>{}</td><td>{}</td></tr>".format(html_escape.escape(item["key"] or ""), html_escape.escape(str(item["value"] or "")))
+            for item in items
         )
         html_page = (
             "<!doctype html><html><head><meta charset='utf-8'><title>etcd keys</title></head>"
@@ -201,13 +180,9 @@ def all_handler():
             f"{rows}</table></body></html>"
         )
         return Response(html_page, mimetype="text/html")
-
     return jsonify({"count": len(items), "items": items}), 200
 
 
 if __name__ == "__main__":
-    logger.info(
-        "Starting sidecar on %s:%d, etcd %s:%d, ENCRYPTION_TYPE=%s",
-        FLASK_HOST, FLASK_PORT, ETCD_HOST, ETCD_PORT, ENCRYPTION_TYPE
-    )
+    logger.info("Starting sidecar on %s:%d, etcd=%s:%d, encryption_type=%s", FLASK_HOST, FLASK_PORT, ETCD_HOST, ETCD_PORT, ENCRYPTION_TYPE)
     app.run(host=FLASK_HOST, port=FLASK_PORT, debug=False)

@@ -1,175 +1,124 @@
-# etcd Sidecar Encryption PoC (Kubernetes)
+# etcd Encryption Sidecar
 
-## Overview
+This repository contains the implementation of an encryption sidecar
+used to evaluate the performance impact of applying additional
+cryptographic protection to data stored in etcd.
 
-This repository contains a **proof of concept (PoC)** implementation of a
-**sidecar-based encryption system for etcd** running in **self-managed Kubernetes environments**.
+The platform accompanies the MSc dissertation:
 
-The project is developed as part of an academic research study and follows a
-**quantitative and experimental methodology** to evaluate the **performance impact**
-and **security properties** of applying encryption using the **Kubernetes sidecar pattern**,
-rather than relying exclusively on etcd’s native encryption mechanisms.
+**"Performance Analysis of Sidecar-Based Encryption for etcd in
+Kubernetes Environments."**
 
----
+The system introduces an encryption layer between application workloads
+and the etcd datastore using the sidecar architectural pattern. A
+Python-based sidecar service performs encryption before data is written
+to etcd and decrypts data when it is retrieved.
 
-## Research Context
+The implementation is designed for **controlled experimental
+benchmarking** rather than production deployment.
 
-The primary research objectives of this project are to:
+------------------------------------------------------------------------
 
-- Validate the feasibility of the **sidecar pattern** for encrypting data before persistence in etcd
-- Measure the **latency, throughput, and resource overhead** introduced by sidecar-based encryption
-- Compare multiple **encryption algorithms** under identical workload conditions
-- Provide comparative insights against **etcd native encryption**
+## Research Motivation
 
-The application container is intentionally kept **unchanged**.
-All cryptographic operations are transparently handled by the sidecar container.
+In Kubernetes environments, etcd acts as the primary datastore for
+cluster state, configuration data, and secrets. While Kubernetes
+supports encryption at rest, this functionality typically relies on
+internal encryption mechanisms integrated within the control plane.
 
----
+This research explores an alternative architectural approach: applying
+encryption externally through a **sidecar-based service**. The objective
+is to evaluate whether encryption can be introduced transparently
+without modifying etcd itself, and to measure the resulting performance
+overhead.
 
-## Architecture Overview
+------------------------------------------------------------------------
 
-This system implements a **true sidecar architecture**, where encryption and decryption
-are handled by a dedicated container colocated with the application container
-inside the same Kubernetes Pod.
+## System Architecture
 
-### Pod-Level Architecture
+The experimental platform consists of three main components:
 
-**Single Pod (Client Deployment)**
+  -----------------------------------------------------------------------
+  Component                      Description
+  ------------------------------ ----------------------------------------
+  Benchmark Client               Generates controlled read/write workload
 
-- **Application container**
-  - Generates requests (benchmark or workload)
-  - Communicates with the sidecar over `http://127.0.0.1:5000`
+  Encryption Sidecar             Python service that encrypts data before
+                                 storage and decrypts data during
+                                 retrieval
 
-- **Encryption sidecar container**
-  - Encrypts values on PUT
-  - Decrypts values on GET
-  - Communicates with etcd via the Kubernetes Service endpoint
+  etcd                           Distributed key--value datastore used as
+                                 the persistent storage layer
+  -----------------------------------------------------------------------
 
-### Data Path
+Data flow:
 
-```
-Application → localhost:5000 (sidecar) → etcd Service → etcd Pod
-```
+Benchmark Client → Encryption Sidecar → etcd
 
-> A Kubernetes Service for the sidecar is **not required** for the sidecar pattern.
-> Services are created only for debugging or experimental inspection.
+All write operations pass through the sidecar before reaching etcd.
 
----
+------------------------------------------------------------------------
 
-## Supported Encryption Modes
+## Experimental Design
 
-The sidecar supports multiple encryption modes, selectable at runtime
-using the `ENCRYPTION_TYPE` environment variable.
+The experiment matrix varies three primary factors:
 
-| Encryption Type        | Category              | Security Properties                         |
-|------------------------|-----------------------|---------------------------------------------|
-| AES_GCM                | Symmetric (AEAD)      | Confidentiality + Integrity                 |
-| CHACHA20_POLY1305      | Symmetric (AEAD)      | Confidentiality + Integrity                 |
-| AES_CBC_HMAC           | Symmetric             | Confidentiality + Integrity (EtM)           |
-| FERNET                 | Symmetric (High-level)| Authenticated encryption                    |
-| JWT_SIGNED             | Token-based           | Integrity / Authentication only             |
-| JWT_ENCRYPTED          | Token-based           | Confidentiality + Integrity (JWE)           |
+-   encryption mode
+-   payload size
+-   repeated read/write operations
 
-**Note:**  
-AES-CBC is implemented using an **encrypt-then-MAC** construction
-(AES-CBC + HMAC-SHA256) to ensure message integrity.
+### Encryption modes
 
----
+-   PLAINTEXT -- baseline without encryption
+-   AES_GCM
+-   AES_CBC
+-   RSA
+-   HYBRID_AES_GCM_RSA
 
-## Multi-Client Experimental Setup
+### Payload sizes
 
-The system supports running **multiple client Pods concurrently**,
-each configured with a **different encryption algorithm**.
+-   1 KB
+-   10 KB
+-   100 KB
 
-Each client deployment:
-- Runs its own encryption sidecar
-- Uses a dedicated Kubernetes Service
-- Writes to a unique key prefix in etcd
+Each experiment executes repeated read/write operations under controlled
+workload conditions.
 
-This design enables **side-by-side experimental comparison**
-of encryption algorithms under identical cluster conditions.
+------------------------------------------------------------------------
 
----
+## Repository Structure
 
-## Verifying Encryption in etcd
+benchmark/ config/benchmark_matrix.yaml run_experiments.py results/
 
-Encryption at rest is verified by comparing:
+client/ app/run_bench.py Dockerfile
 
-1. Data returned via the sidecar API (plaintext)
-2. Data stored directly in etcd using `etcdctl` (ciphertext)
+k8s/ namespace.yaml etcd.yaml sidecar-secret.yaml sidecar.yaml
+bench-client.yaml
 
-### Example Encrypted Value Stored in etcd
+scripts/ deploy.sh run_benchmarks.sh
 
-```json
-{"v":1,"alg":"AES_GCM","data":{"nonce":"...","ct":"..."}}
-```
+Dockerfile etcd_encryption_sidecar.py encryption_plugin_system.py
 
-The plaintext value does **not** appear in etcd, confirming that encryption
-is applied before persistence.
+------------------------------------------------------------------------
 
-Integrity protection is verified by tamper testing, where modified ciphertext
-fails to decrypt.
+## Running the Experiment
 
----
+Deploy and run:
 
-## Deployment and Functional Testing
+./scripts/deploy.sh ./scripts/run_benchmarks.sh
 
-### One-Command Deployment
+Results are written to:
 
-```bash
-bash deploy-poc.sh
-```
+benchmark/results/run_results.csv
 
-The script:
-1. Deploys etcd
-2. Deploys multiple client Pods (one per encryption type)
-3. Executes PUT/GET validation from the application containers
+Raw benchmark data is stored in:
 
-### Manual Test (Inside the Cluster)
+benchmark/results/raw/
 
-```bash
-kubectl exec -n etcd-poc deploy/etcd-client-aesgcm -c app --   curl -s -X POST http://127.0.0.1:5000/put   -H "Content-Type: application/json"   -d '{"key":"aesgcm/test","value":"top-secret-data"}'
-```
+------------------------------------------------------------------------
 
-```bash
-kubectl exec -n etcd-poc deploy/etcd-client-aesgcm -c app --   curl -s "http://127.0.0.1:5000/get?key=aesgcm/test"
-```
+## Notes
 
----
-
-## Benchmarking (In Progress)
-
-The benchmarking phase evaluates the performance impact of sidecar-based encryption.
-
-### Metrics
-
-- Read latency
-- Write latency
-- Throughput
-- CPU utilization
-- Memory usage
-
-### Comparison Baselines
-
-- No encryption
-- Sidecar encryption (multiple algorithms)
-- etcd native encryption
-
-All experiments are executed under identical infrastructure and workload conditions.
-
----
-
-## Non-Goals
-
-This project does **not** aim to:
-
-- Provide a key management system (KMS)
-- Replace etcd native encryption
-- Implement authentication or authorization
-- Serve as a production-ready security solution
-
----
-
-## License
-
-See the LICENSE file for details.
+-   RSA keys are automatically generated if not supplied.
+-   The PLAINTEXT mode keeps the same storage flow for fair comparison.
+-   This platform is designed only for research benchmarking.

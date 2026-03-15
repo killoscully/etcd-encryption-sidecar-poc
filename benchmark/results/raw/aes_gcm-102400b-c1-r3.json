@@ -1,0 +1,22 @@
+{
+  "run_id": "aes_gcm-102400b-c1-r3",
+  "encryption_mode": "AES_GCM",
+  "payload_bytes": 102400,
+  "iterations": 30,
+  "concurrency": 1,
+  "total_operations": 60,
+  "throughput_ops_sec": 296.209,
+  "wall_time_sec": 0.203,
+  "write_ops": 30,
+  "write_avg_ms": 3.569,
+  "write_p50_ms": 3.274,
+  "write_p95_ms": 4.836,
+  "write_p99_ms": 6.355,
+  "write_error_rate_pct": 0.0,
+  "read_ops": 30,
+  "read_avg_ms": 3.143,
+  "read_p50_ms": 2.663,
+  "read_p95_ms": 3.559,
+  "read_p99_ms": 3.822,
+  "read_error_rate_pct": 0.0
+}

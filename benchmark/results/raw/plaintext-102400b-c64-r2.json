@@ -1,0 +1,22 @@
+{
+  "run_id": "plaintext-102400b-c64-r2",
+  "encryption_mode": "PLAINTEXT",
+  "payload_bytes": 102400,
+  "iterations": 30,
+  "concurrency": 64,
+  "total_operations": 60,
+  "throughput_ops_sec": 626.899,
+  "wall_time_sec": 0.096,
+  "write_ops": 30,
+  "write_avg_ms": 37.849,
+  "write_p50_ms": 41.402,
+  "write_p95_ms": 57.833,
+  "write_p99_ms": 65.922,
+  "write_error_rate_pct": 0.0,
+  "read_ops": 30,
+  "read_avg_ms": 29.876,
+  "read_p50_ms": 26.463,
+  "read_p95_ms": 51.545,
+  "read_p99_ms": 52.506,
+  "read_error_rate_pct": 0.0
+}

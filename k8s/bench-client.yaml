@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bench-client
+  namespace: etcd-dissertation
+  labels:
+    app: bench-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bench-client
+  template:
+    metadata:
+      labels:
+        app: bench-client
+    spec:
+      containers:
+        - name: bench-client
+          image: etcd-bench-client:latest
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-lc", "sleep infinity"]

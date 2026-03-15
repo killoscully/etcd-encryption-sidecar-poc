@@ -1,5 +1,0 @@
-workload: mixed
-read_ratio: 50
-write_ratio: 50
-preload: true
-keyspace_size: 200000

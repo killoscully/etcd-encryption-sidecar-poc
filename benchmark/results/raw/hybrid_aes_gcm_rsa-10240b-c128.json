@@ -1,0 +1,22 @@
+{
+  "run_id": "hybrid_aes_gcm_rsa-10240b-c128",
+  "encryption_mode": "HYBRID_AES_GCM_RSA",
+  "payload_bytes": 10240,
+  "iterations": 30,
+  "concurrency": 128,
+  "total_operations": 60,
+  "throughput_ops_sec": 51.087,
+  "wall_time_sec": 1.174,
+  "write_ops": 30,
+  "write_avg_ms": 184.271,
+  "write_p50_ms": 136.382,
+  "write_p95_ms": 747.419,
+  "write_p99_ms": 785.191,
+  "write_error_rate_pct": 0.0,
+  "read_ops": 30,
+  "read_avg_ms": 454.863,
+  "read_p50_ms": 400.667,
+  "read_p95_ms": 828.016,
+  "read_p99_ms": 828.37,
+  "read_error_rate_pct": 0.0
+}
