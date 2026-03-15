@@ -1,0 +1,22 @@
+{
+  "run_id": "hybrid_aes_gcm_rsa-1024b-c64-r4",
+  "encryption_mode": "HYBRID_AES_GCM_RSA",
+  "payload_bytes": 1024,
+  "iterations": 30,
+  "concurrency": 64,
+  "total_operations": 60,
+  "throughput_ops_sec": 52.203,
+  "wall_time_sec": 1.149,
+  "write_ops": 30,
+  "write_avg_ms": 146.62,
+  "write_p50_ms": 60.858,
+  "write_p95_ms": 552.786,
+  "write_p99_ms": 692.69,
+  "write_error_rate_pct": 0.0,
+  "read_ops": 30,
+  "read_avg_ms": 485.312,
+  "read_p50_ms": 481.889,
+  "read_p95_ms": 858.135,
+  "read_p99_ms": 868.374,
+  "read_error_rate_pct": 0.0
+}

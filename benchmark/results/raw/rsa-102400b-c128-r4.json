@@ -1,0 +1,22 @@
+{
+  "run_id": "rsa-102400b-c128-r4",
+  "encryption_mode": "RSA",
+  "payload_bytes": 102400,
+  "iterations": 30,
+  "concurrency": 128,
+  "total_operations": 60,
+  "throughput_ops_sec": 5.358,
+  "wall_time_sec": 11.198,
+  "write_ops": 30,
+  "write_avg_ms": 830.489,
+  "write_p50_ms": 461.45,
+  "write_p95_ms": 1647.841,
+  "write_p99_ms": 4404.512,
+  "write_error_rate_pct": 0.0,
+  "read_ops": 30,
+  "read_avg_ms": 7703.045,
+  "read_p50_ms": 8109.849,
+  "read_p95_ms": 10055.826,
+  "read_p99_ms": 10182.709,
+  "read_error_rate_pct": 0.0
+}

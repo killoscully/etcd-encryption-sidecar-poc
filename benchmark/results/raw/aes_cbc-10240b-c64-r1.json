@@ -1,0 +1,22 @@
+{
+  "run_id": "aes_cbc-10240b-c64-r1",
+  "encryption_mode": "AES_CBC",
+  "payload_bytes": 10240,
+  "iterations": 30,
+  "concurrency": 64,
+  "total_operations": 60,
+  "throughput_ops_sec": 856.624,
+  "wall_time_sec": 0.07,
+  "write_ops": 30,
+  "write_avg_ms": 30.048,
+  "write_p50_ms": 29.176,
+  "write_p95_ms": 47.222,
+  "write_p99_ms": 48.234,
+  "write_error_rate_pct": 0.0,
+  "read_ops": 30,
+  "read_avg_ms": 21.155,
+  "read_p50_ms": 18.774,
+  "read_p95_ms": 35.915,
+  "read_p99_ms": 38.756,
+  "read_error_rate_pct": 0.0
+}

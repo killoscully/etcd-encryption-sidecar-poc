@@ -1,0 +1,22 @@
+{
+  "run_id": "rsa-1024b-c128-r4",
+  "encryption_mode": "RSA",
+  "payload_bytes": 1024,
+  "iterations": 30,
+  "concurrency": 128,
+  "total_operations": 60,
+  "throughput_ops_sec": 45.638,
+  "wall_time_sec": 1.315,
+  "write_ops": 30,
+  "write_avg_ms": 148.889,
+  "write_p50_ms": 23.821,
+  "write_p95_ms": 644.561,
+  "write_p99_ms": 763.514,
+  "write_error_rate_pct": 0.0,
+  "read_ops": 30,
+  "read_avg_ms": 559.368,
+  "read_p50_ms": 586.377,
+  "read_p95_ms": 1012.474,
+  "read_p99_ms": 1039.448,
+  "read_error_rate_pct": 0.0
+}

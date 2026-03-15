@@ -107,6 +107,9 @@ def get_repetitions(experiment: dict) -> int:
 
 
 def main():
+    start_time = time.time()
+    total_runs = 0
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--namespace", default="etcd-dissertation")
     parser.add_argument("--matrix", default="benchmark/config/benchmark_matrix.yaml")
@@ -161,8 +164,15 @@ def main():
                     )
                     append_csv(csv_path, data)
                     print(f"completed {run_id}")
+                    total_runs += 1
+
+    elapsed = time.time() - start_time
+    minutes = int(elapsed // 60)
+    seconds = int(elapsed % 60)
 
     print(f"results written to {csv_path}")
+    print(f"total experiment runs: {total_runs}")
+    print(f"total execution time: {minutes} min {seconds} sec")
 
 
 if __name__ == "__main__":
