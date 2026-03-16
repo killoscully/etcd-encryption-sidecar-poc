@@ -1,9 +1,14 @@
+# This script generates various plots based on benchmark results.
+# It uses pandas for data manipulation and matplotlib for plotting.
+
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
 
+# Set the style for the plots
 plt.style.use("seaborn-v0_8-whitegrid")
 
+# Define colors for different encryption modes
 COLORS = {
     "PLAINTEXT": "#2c7bb6",
     "AES_GCM": "#1a9641",
@@ -12,14 +17,17 @@ COLORS = {
     "RSA": "#d7191c",
 }
 
+# File paths for input data and output plots
 RESULTS_FILE = "benchmark/results/run_results.csv"
 OUTPUT_DIR = Path("benchmark/results/plots")
 
 
+# Function to load benchmark data from a CSV file
 def load_data():
     return pd.read_csv(RESULTS_FILE)
 
 
+# Function to aggregate benchmark results
 def aggregate_results(df: pd.DataFrame) -> pd.DataFrame:
     return (
         df.groupby(["encryption_mode", "payload_bytes", "concurrency"])
@@ -32,6 +40,7 @@ def aggregate_results(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+# Function to plot throughput vs concurrency
 def plot_throughput(agg: pd.DataFrame):
     for payload in sorted(agg.payload_bytes.unique()):
         subset = agg[agg.payload_bytes == payload]
@@ -60,10 +69,11 @@ def plot_throughput(agg: pd.DataFrame):
         plt.tight_layout()
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        plt.savefig(OUTPUT_DIR / f"throughput_{payload_kb}kb.png", dpi=300)
+        plt.savefig(OUTPUT_DIR / f"throughput_{payload_kb}kb.png", dpi=150)
         plt.close()
 
 
+# Function to plot read latency vs concurrency
 def plot_read_latency(agg: pd.DataFrame):
     for payload in sorted(agg.payload_bytes.unique()):
         subset = agg[agg.payload_bytes == payload]
@@ -92,10 +102,11 @@ def plot_read_latency(agg: pd.DataFrame):
         plt.tight_layout()
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        plt.savefig(OUTPUT_DIR / f"read_latency_{payload_kb}kb.png", dpi=300)
+        plt.savefig(OUTPUT_DIR / f"read_latency_{payload_kb}kb.png", dpi=150)
         plt.close()
 
 
+# Function to plot write latency vs concurrency
 def plot_write_latency(agg: pd.DataFrame):
     for payload in sorted(agg.payload_bytes.unique()):
         subset = agg[agg.payload_bytes == payload]
@@ -124,10 +135,11 @@ def plot_write_latency(agg: pd.DataFrame):
         plt.tight_layout()
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        plt.savefig(OUTPUT_DIR / f"write_latency_{payload_kb}kb.png", dpi=300)
+        plt.savefig(OUTPUT_DIR / f"write_latency_{payload_kb}kb.png", dpi=150)
         plt.close()
 
 
+# Function to plot write latency overhead vs plaintext
 def plot_write_latency_overhead(agg: pd.DataFrame):
     for payload in sorted(agg.payload_bytes.unique()):
         subset = agg[agg.payload_bytes == payload].copy()
@@ -168,10 +180,11 @@ def plot_write_latency_overhead(agg: pd.DataFrame):
         plt.tight_layout()
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        plt.savefig(OUTPUT_DIR / f"write_overhead_{payload_kb}kb.png", dpi=300)
+        plt.savefig(OUTPUT_DIR / f"write_overhead_{payload_kb}kb.png", dpi=150)
         plt.close()
 
 
+# Main function to execute the script
 def main():
     df = load_data()
     agg = aggregate_results(df)
@@ -182,6 +195,7 @@ def main():
     plot_write_latency_overhead(agg)
 
     print("Plots saved to:", OUTPUT_DIR)
+
 
 
 if __name__ == "__main__":
