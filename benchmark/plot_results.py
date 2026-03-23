@@ -35,6 +35,8 @@ def aggregate_results(df: pd.DataFrame) -> pd.DataFrame:
             throughput_mean=("throughput_ops_sec", "mean"),
             read_p95_mean=("read_p95_ms", "mean"),
             write_p95_mean=("write_p95_ms", "mean"),
+            cpu_avg_mean=("cpu_avg_pct", "mean"),
+            cpu_peak_mean=("cpu_peak_pct", "mean"),
         )
         .reset_index()
     )
@@ -69,7 +71,7 @@ def plot_throughput(agg: pd.DataFrame):
         plt.tight_layout()
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        plt.savefig(OUTPUT_DIR / f"throughput_{payload_kb}kb.png", dpi=150)
+        plt.savefig(OUTPUT_DIR / f"throughput_{payload_kb}kb.png", dpi=72)
         plt.close()
 
 
@@ -102,7 +104,7 @@ def plot_read_latency(agg: pd.DataFrame):
         plt.tight_layout()
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        plt.savefig(OUTPUT_DIR / f"read_latency_{payload_kb}kb.png", dpi=150)
+        plt.savefig(OUTPUT_DIR / f"read_latency_{payload_kb}kb.png", dpi=72)
         plt.close()
 
 
@@ -135,7 +137,7 @@ def plot_write_latency(agg: pd.DataFrame):
         plt.tight_layout()
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        plt.savefig(OUTPUT_DIR / f"write_latency_{payload_kb}kb.png", dpi=150)
+        plt.savefig(OUTPUT_DIR / f"write_latency_{payload_kb}kb.png", dpi=72)
         plt.close()
 
 
@@ -180,8 +182,43 @@ def plot_write_latency_overhead(agg: pd.DataFrame):
         plt.tight_layout()
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        plt.savefig(OUTPUT_DIR / f"write_overhead_{payload_kb}kb.png", dpi=150)
+        plt.savefig(OUTPUT_DIR / f"write_overhead_{payload_kb}kb.png", dpi=72)
         plt.close()
+
+
+# Function to plot CPU utilisation vs concurrency
+def plot_cpu_utilisation(agg: pd.DataFrame):
+    for payload in sorted(agg.payload_bytes.unique()):
+        subset = agg[agg.payload_bytes == payload]
+        payload_kb = payload // 1024
+
+        plt.figure(figsize=(8, 5))
+
+        for mode in sorted(subset.encryption_mode.unique()):
+            data = subset[subset.encryption_mode == mode].sort_values("concurrency")
+
+            plt.plot(
+                data["concurrency"],
+                data["cpu_avg_mean"],
+                label=mode,
+                marker="o",
+                color=COLORS.get(mode),
+                linewidth=2,
+                markersize=6,
+            )
+
+        plt.xlabel("Concurrency")
+        plt.ylabel("Average CPU Utilisation (%)")
+        plt.title(f"CPU Utilisation vs Concurrency (Payload {payload_kb} KB)")
+        plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
+        plt.legend(title="Encryption Mode")
+        plt.tight_layout()
+
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        plt.savefig(OUTPUT_DIR / f"cpu_utilisation_{payload_kb}kb.png", dpi=72)
+        plt.close()
+
+
 
 
 # Main function to execute the script
@@ -193,6 +230,7 @@ def main():
     plot_read_latency(agg)
     plot_write_latency(agg)
     plot_write_latency_overhead(agg)
+    plot_cpu_utilisation(agg)
 
     print("Plots saved to:", OUTPUT_DIR)
 
