@@ -8,40 +8,80 @@ import subprocess
 import time
 import threading
 from pathlib import Path
+from datetime import datetime
 
 import yaml
+
 
 # ================================
 # CPU MONITOR
 # ================================
 class CPUMonitor:
-    def __init__(self, container_name: str):
-        self.container = container_name
+    def __init__(self, namespace: str):
+        self.namespace = namespace
         self.values = []
         self.running = False
+        self.thread = None
+
+    def _get_sidecar_container_name(self):
+        try:
+            result = subprocess.run(
+                ["docker", "ps", "--format", "{{.Names}}"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            names = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+            candidates = [
+                name for name in names
+                if name.startswith("k8s_encryption-sidecar_") and f"_{self.namespace}_" in name
+            ]
+
+            if not candidates:
+                return None
+
+            candidates.sort()
+            return candidates[0]
+
+        except Exception as exc:
+            print(f"[WARN] failed to resolve sidecar container name: {exc}")
+            return None
 
     def _get_cpu(self):
         try:
+            container_name = self._get_sidecar_container_name()
+            if not container_name:
+                print(
+                    f"[WARN] no running encryption-sidecar container found "
+                    f"for namespace '{self.namespace}'"
+                )
+                return 0.0
+
             result = subprocess.run(
-                ["docker", "stats", self.container, "--no-stream", "--format", "{{.CPUPerc}}"],
+                ["docker", "stats", container_name, "--no-stream", "--format", "{{.CPUPerc}}"],
                 capture_output=True,
                 text=True,
                 check=False,
             )
 
             if result.returncode != 0:
-                print(f"[WARN] docker stats failed for container '{self.container}': {result.stderr.strip()}")
+                print(
+                    f"[WARN] docker stats failed for container '{container_name}': "
+                    f"{result.stderr.strip()}"
+                )
                 return 0.0
 
-            value = result.stdout.strip().replace('%', '')
+            value = result.stdout.strip().replace("%", "")
             if not value:
-                print(f"[WARN] no CPU value returned for container '{self.container}'")
+                print(f"[WARN] no CPU value returned for container '{container_name}'")
                 return 0.0
 
             return float(value)
 
         except Exception as exc:
-            print(f"[WARN] failed to read CPU for container '{self.container}': {exc}")
+            print(f"[WARN] failed to read CPU: {exc}")
             return 0.0
 
     def _collect(self):
@@ -52,12 +92,13 @@ class CPUMonitor:
 
     def start(self):
         self.running = True
-        self.thread = threading.Thread(target=self._collect)
+        self.thread = threading.Thread(target=self._collect, daemon=True)
         self.thread.start()
 
     def stop(self):
         self.running = False
-        self.thread.join()
+        if self.thread is not None:
+            self.thread.join()
 
     def average(self):
         return sum(self.values) / len(self.values) if self.values else 0.0
@@ -90,10 +131,11 @@ CSV_COLUMNS = [
     "read_p95_ms",
     "read_p99_ms",
     "read_error_rate_pct",
-    # NEW CPU METRICS
     "cpu_avg_pct",
     "cpu_peak_pct",
+    "avg_execution_time_sec",
 ]
+
 
 # ================================
 # HELPERS
@@ -106,12 +148,29 @@ def sh(cmd, timeout=None):
         timeout=timeout,
     ).strip()
 
+
 def get_client_pod(namespace: str) -> str:
-    return sh([
-        "kubectl", "-n", namespace, "get", "pods",
-        "-l", "app=bench-client",
-        "-o", "jsonpath={.items[0].metadata.name}",
-    ])
+    retries = 3
+    for attempt in range(1, retries + 1):
+        try:
+            return sh([
+                "kubectl", "-n", namespace, "get", "pods",
+                "-l", "app=bench-client",
+                "-o", "jsonpath={.items[0].metadata.name}",
+            ])
+        except subprocess.CalledProcessError as e:
+            print(
+                f"Attempt {attempt}/{retries}: Failed to get client pod in namespace "
+                f"'{namespace}'.\nCommand: {e.cmd}\nOutput: {e.output}"
+            )
+            if attempt == retries:
+                print(
+                    "All retry attempts failed. Please check your Kubernetes "
+                    "cluster and namespace configuration."
+                )
+                raise
+            time.sleep(5)
+
 
 def set_encryption_mode(namespace: str, mode: str):
     sh([
@@ -122,6 +181,7 @@ def set_encryption_mode(namespace: str, mode: str):
         "kubectl", "-n", namespace, "rollout", "status",
         "deployment/encryption-sidecar", "--timeout=180s",
     ], timeout=190)
+
 
 def exec_bench(
     namespace: str,
@@ -145,6 +205,7 @@ def exec_bench(
     out = sh(cmd, timeout=1800)
     return json.loads(out)
 
+
 def append_csv(path: Path, row: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     exists = path.exists()
@@ -154,6 +215,7 @@ def append_csv(path: Path, row: dict):
             writer.writeheader()
         writer.writerow({k: row.get(k, "") for k in CSV_COLUMNS})
 
+
 def get_concurrency_levels(experiment: dict) -> list[int]:
     if "concurrency_levels" in experiment:
         return [int(v) for v in experiment["concurrency_levels"]]
@@ -161,35 +223,10 @@ def get_concurrency_levels(experiment: dict) -> list[int]:
         return [int(experiment["concurrency"])]
     raise RuntimeError("missing concurrency configuration")
 
+
 def get_repetitions(experiment: dict) -> int:
     return int(experiment.get("repetitions", 1))
 
-
-def get_sidecar_container_name(namespace: str) -> str:
-    result = subprocess.run(
-        ["docker", "ps", "--format", "{{.Names}}"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-    names = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-
-    candidates = [
-        name for name in names
-        if name.startswith("k8s_encryption-sidecar_") and f"_{namespace}_" in name
-    ]
-
-    if not candidates:
-        raise RuntimeError(
-            f"no running encryption-sidecar container found for namespace '{namespace}'"
-        )
-
-    if len(candidates) > 1:
-        # Keep deterministic behaviour
-        candidates.sort()
-
-    return candidates[0]
 
 # ================================
 # MAIN
@@ -202,7 +239,6 @@ def main():
     parser.add_argument("--namespace", default="etcd-dissertation")
     parser.add_argument("--matrix", default="benchmark/config/benchmark_matrix.yaml")
     parser.add_argument("--results-dir", default="benchmark/results")
-    parser.add_argument("--sidecar-container", default="encryption-sidecar")  # NEW
     args = parser.parse_args()
 
     matrix = yaml.safe_load(Path(args.matrix).read_text(encoding="utf-8"))
@@ -213,71 +249,77 @@ def main():
     results_dir = Path(args.results_dir)
     raw_dir = results_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = results_dir / "run_results.csv"
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_path = results_dir / f"run_results_{timestamp}.csv"
 
     pod = get_client_pod(args.namespace)
 
-    for experiment in experiments:
-        mode = experiment["encryption"]
-        iterations = int(experiment["iterations"])
-        payload_sizes = [int(v) for v in experiment["payload_sizes"]]
-        concurrency_levels = get_concurrency_levels(experiment)
-        repetitions = get_repetitions(experiment)
+    for experiment_run in range(3):
+        print(f"Starting experiment run {experiment_run + 1}/3")
 
-        set_encryption_mode(args.namespace, mode)
-        time.sleep(3)
+        for experiment in experiments:
+            mode = experiment["encryption"]
+            iterations = int(experiment["iterations"])
+            payload_sizes = [int(v) for v in experiment["payload_sizes"]]
+            concurrency_levels = get_concurrency_levels(experiment)
+            repetitions = get_repetitions(experiment)
 
-        for payload_bytes in payload_sizes:
-            for concurrency in concurrency_levels:
-                for repetition in range(1, repetitions + 1):
+            set_encryption_mode(args.namespace, mode)
+            time.sleep(3)
 
-                    run_id = (
-                        f"{experiment['name']}-"
-                        f"{payload_bytes}b-"
-                        f"c{concurrency}-"
-                        f"r{repetition}"
-                    )
+            for payload_bytes in payload_sizes:
+                for concurrency in concurrency_levels:
+                    for repetition in range(1, repetitions + 1):
+                        run_id = (
+                            f"{experiment['name']}-"
+                            f"{payload_bytes}b-"
+                            f"c{concurrency}-"
+                            f"r{repetition}"
+                        )
 
-                    # ================================
-                    # START CPU MONITOR
-                    # ================================
-                    sidecar_container_name = get_sidecar_container_name(args.namespace)
-                    # print(f"monitoring sidecar container: {sidecar_container_name}")
-                    cpu_monitor = CPUMonitor(sidecar_container_name)
-                    cpu_monitor.start()
+                        cpu_monitor = CPUMonitor(args.namespace)
+                        cpu_monitor.start()
 
-                    # Run benchmark
-                    data = exec_bench(
-                        args.namespace,
-                        pod,
-                        run_id,
-                        payload_bytes,
-                        iterations,
-                        concurrency,
-                        mode,
-                    )
+                        data = {}
+                        execution_times = []
 
-                    # ================================
-                    # STOP CPU MONITOR
-                    # ================================
-                    cpu_monitor.stop()
+                        for _ in range(3):
+                            start_exec_time = time.time()
+                            data = exec_bench(
+                                args.namespace,
+                                pod,
+                                run_id,
+                                payload_bytes,
+                                iterations,
+                                concurrency,
+                                mode,
+                            )
+                            end_exec_time = time.time()
+                            execution_times.append(end_exec_time - start_exec_time)
 
-                    # Add CPU metrics
-                    data["cpu_avg_pct"] = round(cpu_monitor.average(), 2)
-                    data["cpu_peak_pct"] = round(cpu_monitor.peak(), 2)
+                        cpu_monitor.stop()
 
-                    # Save JSON
-                    (raw_dir / f"{run_id}.json").write_text(
-                        json.dumps(data, indent=2),
-                        encoding="utf-8",
-                    )
+                        data["cpu_avg_pct"] = round(cpu_monitor.average(), 2)
+                        data["cpu_peak_pct"] = round(cpu_monitor.peak(), 2)
+                        data["avg_execution_time_sec"] = round(
+                            sum(execution_times) / len(execution_times), 4
+                        )
 
-                    # Save CSV
-                    append_csv(csv_path, data)
+                        (raw_dir / f"{run_id}.json").write_text(
+                            json.dumps(data, indent=2),
+                            encoding="utf-8",
+                        )
 
-                    print(f"completed {run_id} | CPU avg: {data['cpu_avg_pct']}%")
+                        append_csv(csv_path, data)
 
-                    total_runs += 1
+                        print(
+                            f"completed {run_id} | "
+                            f"CPU avg: {data['cpu_avg_pct']}% | "
+                            f"Avg execution time: {data['avg_execution_time_sec']} sec"
+                        )
+
+                        total_runs += 1
 
     elapsed = time.time() - start_time
     minutes = int(elapsed // 60)
