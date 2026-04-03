@@ -173,6 +173,10 @@ def get_client_pod(namespace: str) -> str:
 
 
 def set_encryption_mode(namespace: str, mode: str):
+    if mode == "NATIVE":
+        print("Skipping sidecar rollout for NATIVE mode")
+        return
+
     sh([
         "kubectl", "-n", namespace, "set", "env", "deployment/encryption-sidecar",
         f"ENCRYPTION_TYPE={mode}",
@@ -192,6 +196,11 @@ def exec_bench(
     concurrency: int,
     encryption_mode: str,
 ):
+    if encryption_mode == "NATIVE":
+        base_url = "http://etcd:2379"
+    else:
+        base_url = "http://sidecar:5000"
+
     cmd = [
         "kubectl", "-n", namespace, "exec", pod, "--",
         "python", "-m", "app.run_bench",
@@ -200,7 +209,7 @@ def exec_bench(
         "--iterations", str(iterations),
         "--concurrency", str(concurrency),
         "--encryption-mode", encryption_mode,
-        "--base-url", "http://sidecar:5000",
+        "--base-url", base_url,
     ]
     out = sh(cmd, timeout=1800)
     return json.loads(out)
@@ -237,8 +246,8 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--namespace", default="etcd-dissertation")
-    parser.add_argument("--matrix", default="benchmark/config/benchmark_matrix.yaml")
-    parser.add_argument("--results-dir", default="benchmark/results")
+    parser.add_argument("--matrix", default="config/benchmark_matrix.yaml")
+    parser.add_argument("--results-dir", default="results")
     args = parser.parse_args()
 
     matrix = yaml.safe_load(Path(args.matrix).read_text(encoding="utf-8"))
@@ -278,8 +287,10 @@ def main():
                             f"r{repetition}"
                         )
 
-                        cpu_monitor = CPUMonitor(args.namespace)
-                        cpu_monitor.start()
+                        cpu_monitor = None
+                        if mode != "NATIVE":
+                            cpu_monitor = CPUMonitor(args.namespace)
+                            cpu_monitor.start()
 
                         data = {}
                         execution_times = []
@@ -298,10 +309,14 @@ def main():
                             end_exec_time = time.time()
                             execution_times.append(end_exec_time - start_exec_time)
 
-                        cpu_monitor.stop()
+                        if cpu_monitor is not None:
+                            cpu_monitor.stop()
+                            data["cpu_avg_pct"] = round(cpu_monitor.average(), 2)
+                            data["cpu_peak_pct"] = round(cpu_monitor.peak(), 2)
+                        else:
+                            data["cpu_avg_pct"] = 0.0
+                            data["cpu_peak_pct"] = 0.0
 
-                        data["cpu_avg_pct"] = round(cpu_monitor.average(), 2)
-                        data["cpu_peak_pct"] = round(cpu_monitor.peak(), 2)
                         data["avg_execution_time_sec"] = round(
                             sum(execution_times) / len(execution_times), 4
                         )

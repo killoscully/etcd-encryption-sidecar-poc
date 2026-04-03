@@ -9,12 +9,22 @@ from matplotlib.lines import Line2D
 plt.style.use("seaborn-v0_8-whitegrid")
 
 COLORS = {
+    "NATIVE": "#000000",
     "PLAINTEXT": "#2c7bb6",
     "AES_GCM": "#888888",
     "AES_CBC": "#66bd63",
     "HYBRID_AES_GCM_RSA": "#fdae61",
     "RSA": "#d7191c",
 }
+
+MODE_ORDER = [
+    "NATIVE",
+    "PLAINTEXT",
+    "AES_GCM",
+    "AES_CBC",
+    "RSA",
+    "HYBRID_AES_GCM_RSA",
+]
 
 RESULTS_FILE = "results/summary_table.csv"
 OUTPUT_DIR = Path("results/plots")
@@ -30,7 +40,10 @@ def plot_throughput(agg: pd.DataFrame):
 
         plt.figure(figsize=(8, 5))
 
-        for mode in sorted(subset.encryption_mode.unique()):
+        for mode in MODE_ORDER:
+            if mode not in subset.encryption_mode.unique():
+                continue
+
             data = subset[subset.encryption_mode == mode].sort_values("concurrency")
 
             plt.plot(
@@ -47,7 +60,7 @@ def plot_throughput(agg: pd.DataFrame):
         plt.ylabel("Throughput (ops/sec)")
         plt.title(f"Throughput vs Concurrency (Payload {payload} KB)")
         plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
-        plt.legend(title="Encryption Mode")
+        plt.legend(title="Mode")
         plt.tight_layout()
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -61,7 +74,10 @@ def plot_read_latency(agg: pd.DataFrame):
 
         plt.figure(figsize=(8, 5))
 
-        for mode in sorted(subset.encryption_mode.unique()):
+        for mode in MODE_ORDER:
+            if mode not in subset.encryption_mode.unique():
+                continue
+
             data = subset[subset.encryption_mode == mode].sort_values("concurrency")
 
             plt.plot(
@@ -78,7 +94,7 @@ def plot_read_latency(agg: pd.DataFrame):
         plt.ylabel("Read P95 Latency (ms)")
         plt.title(f"Read Latency vs Concurrency (Payload {payload} KB)")
         plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
-        plt.legend(title="Encryption Mode")
+        plt.legend(title="Mode")
         plt.tight_layout()
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -92,7 +108,10 @@ def plot_write_latency(agg: pd.DataFrame):
 
         plt.figure(figsize=(8, 5))
 
-        for mode in sorted(subset.encryption_mode.unique()):
+        for mode in MODE_ORDER:
+            if mode not in subset.encryption_mode.unique():
+                continue
+
             data = subset[subset.encryption_mode == mode].sort_values("concurrency")
 
             plt.plot(
@@ -109,7 +128,7 @@ def plot_write_latency(agg: pd.DataFrame):
         plt.ylabel("Write P95 Latency (ms)")
         plt.title(f"Write Latency vs Concurrency (Payload {payload} KB)")
         plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
-        plt.legend(title="Encryption Mode")
+        plt.legend(title="Mode")
         plt.tight_layout()
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -117,7 +136,7 @@ def plot_write_latency(agg: pd.DataFrame):
         plt.close()
 
 
-def plot_write_latency_overhead(agg: pd.DataFrame):
+def plot_write_latency_overhead_vs_plaintext(agg: pd.DataFrame):
     for payload in sorted(agg.payload_kb.unique()):
         subset = agg[agg.payload_kb == payload].copy()
 
@@ -128,12 +147,19 @@ def plot_write_latency_overhead(agg: pd.DataFrame):
 
         plt.figure(figsize=(8, 5))
 
-        for mode in sorted(subset.encryption_mode.unique()):
+        for mode in MODE_ORDER:
+            if mode not in subset.encryption_mode.unique():
+                continue
             if mode == "PLAINTEXT":
                 continue
 
             data = subset[subset.encryption_mode == mode].sort_values("concurrency").copy()
             data["baseline"] = data["concurrency"].map(baseline)
+            data = data.dropna(subset=["baseline"])
+
+            if data.empty:
+                continue
+
             data["overhead_pct"] = (
                 (data["write_p95_mean"] - data["baseline"]) / data["baseline"]
             ) * 100
@@ -152,11 +178,61 @@ def plot_write_latency_overhead(agg: pd.DataFrame):
         plt.ylabel("Write P95 Overhead (%)")
         plt.title(f"Write Latency Overhead vs PLAINTEXT (Payload {payload} KB)")
         plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
-        plt.legend(title="Encryption Mode")
+        plt.legend(title="Mode")
         plt.tight_layout()
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        plt.savefig(OUTPUT_DIR / f"write_overhead_{payload}kb.png", dpi=72)
+        plt.savefig(OUTPUT_DIR / f"write_overhead_vs_plaintext_{payload}kb.png", dpi=72)
+        plt.close()
+
+
+def plot_write_latency_overhead_vs_native(agg: pd.DataFrame):
+    for payload in sorted(agg.payload_kb.unique()):
+        subset = agg[agg.payload_kb == payload].copy()
+
+        baseline = (
+            subset[subset.encryption_mode == "NATIVE"]
+            .set_index("concurrency")["write_p95_mean"]
+        )
+
+        plt.figure(figsize=(8, 5))
+
+        for mode in MODE_ORDER:
+            if mode not in subset.encryption_mode.unique():
+                continue
+            if mode == "NATIVE":
+                continue
+
+            data = subset[subset.encryption_mode == mode].sort_values("concurrency").copy()
+            data["baseline"] = data["concurrency"].map(baseline)
+            data = data.dropna(subset=["baseline"])
+
+            if data.empty:
+                continue
+
+            data["overhead_pct"] = (
+                (data["write_p95_mean"] - data["baseline"]) / data["baseline"]
+            ) * 100
+
+            plt.plot(
+                data["concurrency"],
+                data["overhead_pct"],
+                label=mode,
+                marker="o",
+                color=COLORS.get(mode),
+                linewidth=2,
+                markersize=6,
+            )
+
+        plt.xlabel("Concurrency")
+        plt.ylabel("Write P95 Overhead (%)")
+        plt.title(f"Write Latency Overhead vs NATIVE (Payload {payload} KB)")
+        plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
+        plt.legend(title="Mode")
+        plt.tight_layout()
+
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        plt.savefig(OUTPUT_DIR / f"write_overhead_vs_native_{payload}kb.png", dpi=72)
         plt.close()
 
 
@@ -166,7 +242,10 @@ def plot_cpu_utilisation(agg: pd.DataFrame):
 
         plt.figure(figsize=(8, 5))
 
-        for mode in sorted(subset.encryption_mode.unique()):
+        for mode in MODE_ORDER:
+            if mode not in subset.encryption_mode.unique():
+                continue
+
             data = subset[subset.encryption_mode == mode].sort_values("concurrency")
 
             plt.plot(
@@ -183,7 +262,7 @@ def plot_cpu_utilisation(agg: pd.DataFrame):
         plt.ylabel("Average CPU Utilisation (%)")
         plt.title(f"CPU Utilisation vs Concurrency (Payload {payload} KB)")
         plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
-        plt.legend(title="Encryption Mode")
+        plt.legend(title="Mode")
         plt.tight_layout()
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -193,7 +272,8 @@ def plot_cpu_utilisation(agg: pd.DataFrame):
 
 def _legend_elements():
     return [
-        Line2D([0], [0], color="none", label="Encryption"),
+        Line2D([0], [0], color="none", label="Baselines / Modes"),
+        Line2D([0], [0], color="#000000", lw=2, label="NATIVE"),
         Line2D([0], [0], color="#2c7bb6", lw=2, label="PLAINTEXT"),
         Line2D([0], [0], color="#888888", lw=2, label="AES-GCM"),
         Line2D([0], [0], color="#66bd63", lw=2, label="AES-CBC"),
@@ -216,7 +296,10 @@ def plot_all_in_one(agg: pd.DataFrame, value_col: str, ylabel: str, title: str, 
         100: {"linestyle": ":", "marker": "o"},
     }
 
-    for mode in sorted(agg["encryption_mode"].unique()):
+    for mode in MODE_ORDER:
+        if mode not in agg["encryption_mode"].unique():
+            continue
+
         for payload in sorted(agg["payload_kb"].unique()):
             data = agg[
                 (agg["encryption_mode"] == mode) &
@@ -251,7 +334,7 @@ def plot_all_in_one(agg: pd.DataFrame, value_col: str, ylabel: str, title: str, 
     )
 
     for text in legend.get_texts():
-        if text.get_text() in ["Encryption", "Payload Size"]:
+        if text.get_text() in ["Baselines / Modes", "Payload Size"]:
             text.set_weight("bold")
             text.set_ha("left")
 
@@ -266,7 +349,8 @@ def main():
     plot_throughput(agg)
     plot_read_latency(agg)
     plot_write_latency(agg)
-    plot_write_latency_overhead(agg)
+    plot_write_latency_overhead_vs_plaintext(agg)
+    plot_write_latency_overhead_vs_native(agg)
     plot_cpu_utilisation(agg)
 
     plot_all_in_one(

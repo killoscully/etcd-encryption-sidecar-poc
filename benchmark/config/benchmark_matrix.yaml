@@ -1,4 +1,11 @@
 experiments:
+  - name: native
+    encryption: NATIVE
+    payload_sizes: [1024, 10240, 102400]
+    iterations: 30
+    concurrency_levels: [1, 10, 64, 128]
+    repetitions: 5
+
   - name: plaintext
     encryption: PLAINTEXT
     payload_sizes: [1024, 10240, 102400]

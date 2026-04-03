@@ -5,8 +5,17 @@ RESULTS_DIR = Path("results")
 OUTPUT_FILE = "results/summary_table.csv"
 LATEST_FILES_TO_USE = 5
 
+MODE_ORDER = {
+    "NATIVE": 0,
+    "PLAINTEXT": 1,
+    "AES_GCM": 2,
+    "AES_CBC": 3,
+    "RSA": 4,
+    "HYBRID_AES_GCM_RSA": 5,
+}
 
-def get_latest_result_files(results_dir: Path, limit: int = 3) -> list[Path]:
+
+def get_latest_result_files(results_dir: Path, limit: int = LATEST_FILES_TO_USE) -> list[Path]:
     files = sorted(
         results_dir.glob("run_results_*.csv"),
         key=lambda p: p.stat().st_mtime,
@@ -49,6 +58,7 @@ def main():
     )
 
     summary["payload_kb"] = summary["payload_bytes"] // 1024
+    summary["mode_order"] = summary["encryption_mode"].map(MODE_ORDER).fillna(999)
 
     summary = summary[
         [
@@ -59,8 +69,11 @@ def main():
             "write_p95_mean",
             "read_p95_mean",
             "cpu_avg_mean",
+            "mode_order",
         ]
-    ].sort_values(["payload_kb", "concurrency", "encryption_mode"])
+    ].sort_values(["payload_kb", "concurrency", "mode_order", "encryption_mode"])
+
+    summary = summary.drop(columns=["mode_order"])
 
     Path(OUTPUT_FILE).parent.mkdir(parents=True, exist_ok=True)
     summary.to_csv(OUTPUT_FILE, index=False)
