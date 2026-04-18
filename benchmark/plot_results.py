@@ -287,8 +287,14 @@ def _legend_elements():
     ]
 
 
-def plot_all_in_one(agg: pd.DataFrame, value_col: str, ylabel: str, title: str, filename: str, legend_loc="best"):
-    plt.figure(figsize=(10, 6))
+def plot_all_in_one(
+    agg: pd.DataFrame,
+    value_col: str,
+    ylabel: str,
+    title: str,
+    filename: str,
+):
+    fig, ax = plt.subplots(figsize=(12, 7.5))
 
     payload_styles = {
         1: {"linestyle": "-", "marker": "o"},
@@ -311,7 +317,7 @@ def plot_all_in_one(agg: pd.DataFrame, value_col: str, ylabel: str, title: str, 
 
             style = payload_styles.get(payload, {"linestyle": "-", "marker": "o"})
 
-            plt.plot(
+            ax.plot(
                 data["concurrency"],
                 data[value_col],
                 color=COLORS.get(mode),
@@ -321,27 +327,62 @@ def plot_all_in_one(agg: pd.DataFrame, value_col: str, ylabel: str, title: str, 
                 markersize=5,
             )
 
-    plt.xlabel("Concurrency")
-    plt.ylabel(ylabel)
-    plt.title(title)
-    plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
+    ax.set_xlabel("Concurrency")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
 
-    legend = plt.legend(
-        handles=_legend_elements(),
-        loc=legend_loc,
-        fontsize=8,
-        framealpha=0.9,
+    mode_handles = [
+        Line2D([0], [0], color=COLORS["NATIVE"], lw=2, label="NATIVE"),
+        Line2D([0], [0], color=COLORS["PLAINTEXT"], lw=2, label="PLAINTEXT"),
+        Line2D([0], [0], color=COLORS["AES_GCM"], lw=2, label="AES-GCM"),
+        Line2D([0], [0], color=COLORS["AES_CBC"], lw=2, label="AES-CBC"),
+        Line2D([0], [0], color=COLORS["RSA"], lw=2, label="RSA"),
+        Line2D([0], [0], color=COLORS["HYBRID_AES_GCM_RSA"], lw=2, label="HYBRID"),
+    ]
+
+    payload_handles = [
+        Line2D([0], [0], color="#666666", linestyle="-", lw=2, label="1 KB"),
+        Line2D([0], [0], color="#666666", linestyle="--", lw=2, label="10 KB"),
+        Line2D([0], [0], color="#666666", linestyle=":", lw=2, label="100 KB"),
+    ]
+
+    # Leave space at bottom
+    fig.subplots_adjust(bottom=0.22)
+
+    # --- Legend 1: Modes (left) ---
+    legend_modes = fig.legend(
+        handles=mode_handles,
+        title="Baselines / Modes",
+        loc="lower center",
+        bbox_to_anchor=(0.40, 0.02),
+        ncol=2,
+        fontsize=9,
+        frameon=False,
+        handlelength=2.5,
+        columnspacing=1.8,
     )
 
-    for text in legend.get_texts():
-        if text.get_text() in ["Baselines / Modes", "Payload Size"]:
-            text.set_weight("bold")
-            text.set_ha("left")
+    legend_modes.get_title().set_fontweight("bold")
+
+    # --- Legend 2: Payload (right) ---
+    legend_payload = fig.legend(
+        handles=payload_handles,
+        title="Payload Size",
+        loc="lower center",
+        bbox_to_anchor=(0.60, 0.02),
+        ncol=1,
+        fontsize=9,
+        frameon=False,
+        handlelength=2.5,
+        columnspacing=1.8,
+    )
+
+    legend_payload.get_title().set_fontweight("bold")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    plt.savefig(OUTPUT_DIR / filename, dpi=72)
-    plt.close()
-
+    fig.savefig(OUTPUT_DIR / filename, dpi=150, bbox_inches="tight")
+    plt.close(fig)
 
 def main():
     agg = load_data()
@@ -365,24 +406,22 @@ def main():
         "read_p95_mean",
         "Read P95 Latency (ms)",
         "Read Latency vs Concurrency (All Payloads)",
-        "read_latency_all_in_one.png",
-        legend_loc="upper left",
+        "read_latency_all_in_one.png"
     )
     plot_all_in_one(
         agg,
         "write_p95_mean",
         "Write P95 Latency (ms)",
         "Write Latency vs Concurrency (All Payloads)",
-        "write_latency_all_in_one.png",
-        legend_loc="upper left",
+        "write_latency_all_in_one.png"
+
     )
     plot_all_in_one(
         agg,
         "cpu_avg_mean",
         "Average CPU Utilisation (%)",
         "CPU Utilisation vs Concurrency (All Payloads)",
-        "cpu_utilisation_all_in_one.png",
-        legend_loc="center left",
+        "cpu_utilisation_all_in_one.png"
     )
 
     print("Plots saved to:", OUTPUT_DIR)
