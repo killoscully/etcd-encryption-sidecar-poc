@@ -82,17 +82,6 @@ The current code registers the following modes in `encryption_plugin_system.py`:
   - Uses AES-GCM for payload encryption
   - Uses RSA-OAEP to encrypt the randomly generated data encryption key
 
-### Important clarification
-
-The current repository **does not implement** these modes in the reviewed codebase:
-
-- `CHACHA20_POLY1305`
-- `FERNET`
-- `JWT_SIGNED`
-- `JWT_ENCRYPTED`
-
-Those modes should **not** be documented as active features for this repository version.
-
 ---
 
 ## Benchmark Matrix in the Current Repository
@@ -169,22 +158,6 @@ All provided manifests and scripts use:
 ```text
 etcd-dissertation
 ```
-
-### Important clarification
-
-The current repository version is **not** using the “application container and sidecar
-in the same Pod” multi-client layout that appeared in later discussion.
-
-The reviewed codebase uses:
-
-- one sidecar deployment
-- one benchmark client deployment
-- one etcd deployment
-
-So the README should describe this repository as a **benchmark platform with a sidecar service**,
-not as a multi-client same-Pod experimental layout.
-
----
 
 ## Scripts Included
 
@@ -320,17 +293,4 @@ python3 benchmark/generate_summary_table.py
 
 ---
 
-## Research Positioning
-
-This platform is suitable for evaluating:
-
-- overhead introduced by a sidecar encryption service
-- performance differences between plaintext, symmetric, asymmetric, and hybrid modes
-- comparison between sidecar-based protection and direct etcd access
-
-It is not intended to provide:
-
-- production-grade key management
-- Kubernetes control-plane integration
-- operational hardening for live clusters
 
