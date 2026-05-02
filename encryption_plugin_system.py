@@ -202,37 +202,93 @@ class RSAPlugin(EncryptionPlugin):
 class HybridAESGCMRSAPlugin(EncryptionPlugin):
     name = "HYBRID_AES_GCM_RSA"
 
-    def encrypt(self, plaintext: str, key_material: KeyMaterial) -> str:
+    def __init__(self, max_session_uses: int = 1000):
+        self.max_session_uses = max_session_uses
+        self._session_key: Optional[bytes] = None
+        self._encrypted_session_key: Optional[bytes] = None
+        self._session_id: Optional[str] = None
+        self._session_uses = 0
+        self._decrypt_cache: Dict[str, bytes] = {}
+
+    def _create_session(self, key_material: KeyMaterial):
         public_key = key_material.get_rsa_public_key()
-        dek = os.urandom(32)
-        nonce = os.urandom(12)
-        ct = AESGCM(dek).encrypt(nonce, _to_bytes(plaintext), None)
-        encrypted_key = public_key.encrypt(
-            dek,
+        session_key = os.urandom(32)
+        session_id = b64e(os.urandom(16))
+
+        encrypted_session_key = public_key.encrypt(
+            session_key,
             asym_padding.OAEP(
                 mgf=asym_padding.MGF1(algorithm=hashes.SHA256()),
                 algorithm=hashes.SHA256(),
                 label=None,
             ),
         )
-        return Envelope(1, self.name, {"nonce": b64e(nonce), "ct": b64e(ct), "encrypted_key": b64e(encrypted_key)}).dumps()
+
+        self._session_key = session_key
+        self._encrypted_session_key = encrypted_session_key
+        self._session_id = session_id
+        self._session_uses = 0
+
+    def _get_session(self, key_material: KeyMaterial):
+        if (
+            self._session_key is None
+            or self._encrypted_session_key is None
+            or self._session_id is None
+            or self._session_uses >= self.max_session_uses
+        ):
+            self._create_session(key_material)
+
+        self._session_uses += 1
+        return self._session_key, self._encrypted_session_key, self._session_id
+
+    def encrypt(self, plaintext: str, key_material: KeyMaterial) -> str:
+        session_key, encrypted_session_key, session_id = self._get_session(key_material)
+
+        nonce = os.urandom(12)
+        ct = AESGCM(session_key).encrypt(nonce, _to_bytes(plaintext), None)
+
+        return Envelope(
+            1,
+            self.name,
+            {
+                "session_id": session_id,
+                "nonce": b64e(nonce),
+                "ct": b64e(ct),
+                "encrypted_key": b64e(encrypted_session_key),
+            },
+        ).dumps()
 
     def decrypt(self, ciphertext: str, key_material: KeyMaterial) -> str:
         env = Envelope.loads(ciphertext)
         if not env or env.alg != self.name:
             raise ValueError("not HYBRID_AES_GCM_RSA envelope")
-        private_key = key_material.get_rsa_private_key()
-        dek = private_key.decrypt(
-            b64d(env.data["encrypted_key"]),
-            asym_padding.OAEP(
-                mgf=asym_padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None,
-            ),
-        )
-        pt = AESGCM(dek).decrypt(b64d(env.data["nonce"]), b64d(env.data["ct"]), None)
-        return _to_str(pt)
 
+        session_id = env.data.get("session_id")
+        encrypted_key = env.data.get("encrypted_key")
+
+        if not session_id or not encrypted_key:
+            raise ValueError("missing hybrid session metadata")
+
+        if session_id in self._decrypt_cache:
+            session_key = self._decrypt_cache[session_id]
+        else:
+            private_key = key_material.get_rsa_private_key()
+            session_key = private_key.decrypt(
+                b64d(encrypted_key),
+                asym_padding.OAEP(
+                    mgf=asym_padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None,
+                ),
+            )
+            self._decrypt_cache[session_id] = session_key
+
+        pt = AESGCM(session_key).decrypt(
+            b64d(env.data["nonce"]),
+            b64d(env.data["ct"]),
+            None,
+        )
+        return _to_str(pt)
 
 class EncryptionPluginManager:
     def __init__(self) -> None:
